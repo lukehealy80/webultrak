@@ -38,4 +38,76 @@
       });
     </script>
   </body>
+<!-- Save Data Management UI -->
+<div style="text-align: center; margin-top: 15px;">
+  <button onclick="exportSaveData()" style="padding: 8px 16px; margin-right: 10px; cursor: pointer;">💾 Backup Save File</button>
+  <button onclick="document.getElementById('importFile').click()" style="padding: 8px 16px; cursor: pointer;">📂 Restore Save File</button>
+  <input type="file" id="importFile" style="display: none;" onchange="importSaveData(event)" accept=".json">
+</div>
+
+<script>
+  // Export IndexedDB /idbfs save data to a downloadable JSON file
+  function exportSaveData() {
+    const request = indexedDB.open('/idbfs');
+    request.onsuccess = function(event) {
+      const db = event.target.result;
+      if (!db.objectStoreNames.contains('FILE_DATA')) {
+        alert("No save data found yet!");
+        return;
+      }
+      const transaction = db.transaction(['FILE_DATA'], 'readonly');
+      const store = transaction.objectStore('FILE_DATA');
+      const getAllKeys = store.getAllKeys();
+      const getAllValues = store.getAll();
+
+      transaction.oncomplete = function() {
+        const dump = {};
+        for (let i = 0; i < getAllKeys.result.length; i++) {
+          dump[getAllKeys.result[i]] = Array.from(new Uint8Array(getAllValues.result[i].timestamp ? getAllValues.result[i].contents : getAllValues.result[i]));
+        }
+        const blob = new Blob([JSON.stringify(dump)], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'ultrakill_save_backup.json';
+        a.click();
+      };
+    };
+    request.onerror = function() {
+      alert("Error accessing browser save storage.");
+    };
+  }
+
+  // Import JSON save file back into IndexedDB /idbfs
+  function importSaveData(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      try {
+        const dump = JSON.parse(e.target.result);
+        const request = indexedDB.open('/idbfs');
+
+        request.onsuccess = function(evt) {
+          const db = evt.target.result;
+          const transaction = db.transaction(['FILE_DATA'], 'readwrite');
+          const store = transaction.objectStore('FILE_DATA');
+
+          for (const key in dump) {
+            const dataArray = new Uint8Array(dump[key]);
+            store.put(dataArray, key);
+          }
+
+          transaction.oncomplete = function() {
+            alert("Save data restored successfully! Refreshing page...");
+            location.reload();
+          };
+        };
+      } catch (err) {
+        alert("Invalid save file format.");
+      }
+    };
+    reader.readAsText(file);
+  }
+</script>
 </html>
