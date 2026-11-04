@@ -6,8 +6,8 @@
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
     <title>WEB PORT</title>
   </head>
-  <body style="text-align: center; padding: 0; border: 0; margin: 0;">
-    <canvas id="unity-canvas" width=1280 height=720 style="width: 1280px; height: 720px; background: #231F20"></canvas>
+  <body style="text-align: center; padding: 0; border: 0; margin: 0; background-color: #000;">
+    <canvas id="unity-canvas" width="1280" height="720" style="width: 1280px; height: 720px; background: #231F20"></canvas>
     
     <script src="Build/ultrakill.loader.js"></script>
     <script>
@@ -37,9 +37,9 @@
     </script>
 
     <!-- Save Data Management UI -->
-    <div style="text-align: center; margin-top: 15px;">
-      <button onclick="exportSaveData()" style="padding: 8px 16px; margin-right: 10px; cursor: pointer;">💾 Backup Save File</button>
-      <button onclick="document.getElementById('importFile').click()" style="padding: 8px 16px; cursor: pointer;">📂 Restore Save File</button>
+    <div style="text-align: center; margin-top: 15px; margin-bottom: 20px;">
+      <button onclick="exportSaveData()" style="padding: 10px 20px; margin-right: 10px; cursor: pointer; font-weight: bold;">💾 Backup Save File</button>
+      <button onclick="document.getElementById('importFile').click()" style="padding: 10px 20px; cursor: pointer; font-weight: bold;">📂 Restore Save File</button>
       <input type="file" id="importFile" style="display: none;" onchange="importSaveData(event)" accept=".json">
     </div>
 
@@ -50,19 +50,31 @@
         request.onsuccess = function(event) {
           const db = event.target.result;
           if (!db.objectStoreNames.contains('FILE_DATA')) {
-            alert("No save data found yet!");
+            alert("No save data found yet! Play until a checkpoint first.");
             return;
           }
           const transaction = db.transaction(['FILE_DATA'], 'readonly');
           const store = transaction.objectStore('FILE_DATA');
-          const getAllKeys = store.getAllKeys();
-          const getAllValues = store.getAll();
+          const keysReq = store.getAllKeys();
+          const valsReq = store.getAll();
 
           transaction.oncomplete = function() {
-            const dump = {};
-            for (let i = 0; i < getAllKeys.result.length; i++) {
-              dump[getAllKeys.result[i]] = Array.from(new Uint8Array(getAllValues.result[i].timestamp ? getAllValues.result[i].contents : getAllValues.result[i]));
+            const keys = keysReq.result;
+            const vals = valsReq.result;
+            if (!keys || keys.length === 0) {
+              alert("No save files found to export.");
+              return;
             }
+
+            const dump = {};
+            for (let i = 0; i < keys.length; i++) {
+              const val = vals[i];
+              const rawContents = (val && val.contents) ? val.contents : val;
+              if (rawContents) {
+                dump[keys[i]] = Array.from(new Uint8Array(rawContents));
+              }
+            }
+
             const blob = new Blob([JSON.stringify(dump)], { type: 'application/json' });
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
@@ -75,7 +87,7 @@
         };
       }
 
-      // Import JSON save file back into IndexedDB /idbfs
+      // Import JSON save file back into IndexedDB /idbfs with Emscripten metadata structure
       function importSaveData(event) {
         const file = event.target.files[0];
         if (!file) return;
@@ -93,16 +105,21 @@
 
               for (const key in dump) {
                 const dataArray = new Uint8Array(dump[key]);
-                store.put(dataArray, key);
+                // Format with the timestamp object structure expected by Unity's filesystem
+                const fileNode = {
+                  timestamp: new Date(),
+                  contents: dataArray
+                };
+                store.put(fileNode, key);
               }
 
               transaction.oncomplete = function() {
-                alert("Save data restored successfully! Refreshing page...");
-                location.reload();
+                alert("Save data restored successfully! Refreshing game...");
+                window.location.reload();
               };
             };
           } catch (err) {
-            alert("Invalid save file format.");
+            alert("Invalid or corrupted save file.");
           }
         };
         reader.readAsText(file);
